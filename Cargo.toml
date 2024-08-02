@@ -1,0 +1,13 @@
+[package]
+name = "swiss-army-archive"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+
+
+flate2 = "1.0.30"
+zip = "2.1.6"
+tar = "0.4.41" 
+anyhow = "1.0.44"
+sevenz-rust = "0.6.1"
