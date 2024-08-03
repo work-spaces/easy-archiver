@@ -10,6 +10,7 @@ tar = "0.4.41"
 anyhow = "1.0.44"
 sevenz-rust = "0.6.1"
 bzip2 = "0.4.4"
+anyhow-source-location = { git = "https://github.com/work-spaces/anyhow-source-location", rev = "019b7804e35a72f945b3b4b3a96520cdbaa77f70" }
 
 [dev-dependencies]
 printer = { git = "https://github.com/work-spaces/printer-rs", rev = "7b3352c4c7ae21b3920be0c5904f926f2b2b724e" }

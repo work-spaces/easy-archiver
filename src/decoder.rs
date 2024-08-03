@@ -1,47 +1,45 @@
+use anyhow_source_location::{format_context, format_error};
 use std::io::Read;
 
-use crate::driver::{Driver, UpdateStatus, Updater};
+use crate::driver::{Driver, UpdateStatus, Updater, SEVEN_Z_TAR_FILENAME};
 
 use anyhow::Context;
-use sevenz_rust::Password;
 
-enum DecoderDriver<Reader: std::io::Read + std::io::Seek + std::marker::Send> {
-    ZlibDecoder(flate2::read::ZlibDecoder<Reader>),
-    GzipDecoder(flate2::read::GzDecoder<Reader>),
-    BzipDecoder(bzip2::read::BzDecoder<Reader>),
-    Bzip2Decoder(bzip2::read::BzDecoder<Reader>),
-    ZipDecoder(zip::ZipArchive<Reader>),
-    SevenZDecoder(sevenz_rust::SevenZReader<Reader>),
+enum DecoderDriver {
+    GzipDecoder(flate2::read::GzDecoder<std::fs::File>),
+    Bzip2Decoder(bzip2::read::BzDecoder<std::fs::File>),
+    ZipDecoder(zip::ZipArchive<std::fs::File>),
+    SevenZDecoder,
 }
 
-pub struct Decoder<Reader: std::io::Read + std::io::Seek + std::marker::Send> {
-    decoder: DecoderDriver<Reader>,
+pub struct Decoder {
+    decoder: DecoderDriver,
     output_directory: String,
+    input_file_name: String,
     reader_size: u64,
     driver: Driver,
 }
 
-impl<Reader: std::io::Read + std::io::Seek + std::marker::Send> Decoder<Reader> {
-    pub fn new(
-        driver: Driver,
-        destination_directory: &str,
-        reader: Reader,
-        reader_size: u64,
-    ) -> anyhow::Result<Self> {
+impl Decoder {
+    pub fn new(input_file_path: &str, destination_directory: &str) -> anyhow::Result<Self> {
+        let driver =
+            Driver::from_filename(input_file_path).context(format_context!("{input_file_path}"))?;
+
+        let reader_size = std::path::Path::new(input_file_path)
+            .metadata()
+            .context(format_context!("{input_file_path}"))?
+            .len();
+
+        let input_file =
+            std::fs::File::open(input_file_path).context(format_context!("{input_file_path}"))?;
+
         let decoder = match driver {
-            Driver::Zlib => DecoderDriver::ZlibDecoder(flate2::read::ZlibDecoder::new(reader)),
-            Driver::Gzip => DecoderDriver::GzipDecoder(flate2::read::GzDecoder::new(reader)),
+            Driver::Gzip => DecoderDriver::GzipDecoder(flate2::read::GzDecoder::new(input_file)),
             Driver::Zip => DecoderDriver::ZipDecoder(
-                zip::ZipArchive::new(reader)
-                    .context(format!("Failed to create zip archive decoder"))?,
+                zip::ZipArchive::new(input_file).context(format_context!("{input_file_path}"))?,
             ),
-            Driver::Bzip => DecoderDriver::BzipDecoder(bzip2::read::BzDecoder::new(reader)),
-            Driver::Bzip2 => DecoderDriver::Bzip2Decoder(bzip2::read::BzDecoder::new(reader)),
-            Driver::SevenZ => DecoderDriver::SevenZDecoder(
-                sevenz_rust::SevenZReader::new(reader, reader_size, Password::empty()).context(
-                    format!("Failed to create 7z reader with {reader_size} bytes"),
-                )?,
-            ),
+            Driver::Bzip2 => DecoderDriver::Bzip2Decoder(bzip2::read::BzDecoder::new(input_file)),
+            Driver::SevenZ => DecoderDriver::SevenZDecoder,
         };
 
         let output_directory = destination_directory.to_string();
@@ -50,6 +48,7 @@ impl<Reader: std::io::Read + std::io::Seek + std::marker::Send> Decoder<Reader> 
             decoder,
             output_directory,
             reader_size,
+            input_file_name: input_file_path.to_string(),
             driver,
         })
     }
@@ -95,13 +94,10 @@ impl<Reader: std::io::Read + std::io::Seek + std::marker::Send> Decoder<Reader> 
     pub fn extract(self, updater: Updater) -> anyhow::Result<()> {
         let reader_size = self.reader_size;
         let driver = self.driver;
+        let input_file: String = self.input_file_name.clone();
+        let output_directory = self.output_directory.clone();
+
         let tar_bytes = match self.decoder {
-            DecoderDriver::ZlibDecoder(decoder) => Some(Self::extract_to_tar_bytes(
-                decoder,
-                updater,
-                reader_size,
-                driver,
-            )?),
             DecoderDriver::GzipDecoder(decoder) => Some(Self::extract_to_tar_bytes(
                 decoder,
                 updater,
@@ -122,7 +118,7 @@ impl<Reader: std::io::Read + std::io::Seek + std::marker::Send> Decoder<Reader> 
                 for file in file_names {
                     let mut zip_file = decoder
                         .by_name(file.as_str())
-                        .context("Failed to read file")?;
+                        .context(format_context!("{file:?}"))?;
 
                     if let Some(updater) = updater {
                         updater(UpdateStatus {
@@ -134,34 +130,70 @@ impl<Reader: std::io::Read + std::io::Seek + std::marker::Send> Decoder<Reader> 
                     let mut buffer = Vec::new();
                     let destination_path = format!("{}/{}", self.output_directory, zip_file.name());
                     let mut file = std::fs::File::create(destination_path.as_str())
-                        .context("Failed to create file")?;
+                        .context(format_context!("{destination_path}"))?;
                     use std::io::Write;
                     zip_file
                         .read_to_end(&mut buffer)
-                        .context("Failed to read file")?;
+                        .context(format_context!("{destination_path}"))?;
                     file.write(buffer.as_slice())
-                        .context("Failed to write file")?;
+                        .context(format_context!("{destination_path}"))?;
                 }
 
                 decoder
                     .extract(self.output_directory.as_str())
-                    .context("Failed to extract zip archive")?;
+                    .context(format_context!("{output_directory}"))?;
 
                 None
             }
-            DecoderDriver::BzipDecoder(decoder) => Some(Self::extract_to_tar_bytes(
-                decoder,
-                updater,
-                reader_size,
-                driver,
-            )?),
             DecoderDriver::Bzip2Decoder(decoder) => Some(Self::extract_to_tar_bytes(
                 decoder,
                 updater,
                 reader_size,
                 driver,
             )?),
-            DecoderDriver::SevenZDecoder(_) => None,
+            DecoderDriver::SevenZDecoder => {
+                if let Some(updater) = updater.as_ref() {
+                    updater(UpdateStatus {
+                        brief: Some(format!("Extracting {}", driver.extension())),
+                        detail: Some("creating tar as binary blob".to_string()),
+                        total: Some(200),
+                        ..Default::default()
+                    });
+                }
+
+                let handle = std::thread::spawn(move || -> anyhow::Result<Vec<u8>> {
+                    let temporary_file_path =
+                        format!("{output_directory}/{}", SEVEN_Z_TAR_FILENAME);
+                    let input_file = std::fs::File::open(input_file.as_str())
+                        .context(format_context!("{input_file}"))?;
+                    sevenz_rust::decompress(input_file, output_directory.as_str()).context(
+                        format_context!("{temporary_file_path} -> {output_directory}"),
+                    )?;
+                    let result = std::fs::read(temporary_file_path.as_str())
+                        .context(format_context!("{temporary_file_path}"));
+
+                    std::fs::remove_file(temporary_file_path.as_str())
+                        .context(format_context!("{temporary_file_path}"))?;
+
+                    result
+                });
+
+                while !handle.is_finished() {
+                    if let Some(updater) = updater {
+                        updater(UpdateStatus {
+                            increment: Some(1),
+                            ..Default::default()
+                        });
+                    }
+                    std::thread::sleep(std::time::Duration::from_millis(50));
+                }
+
+                let result = handle.join().map_err(|err| format_error!("{:?}", err))?;
+
+                let tar_contents = result.context(format_context!(""))?;
+
+                Some(tar_contents)
+            }
         };
 
         let output_directory = self.output_directory.clone();
@@ -171,7 +203,7 @@ impl<Reader: std::io::Read + std::io::Seek + std::marker::Send> Decoder<Reader> 
                 let mut archive = tar::Archive::new(tar_bytes.as_slice());
                 archive
                     .unpack(output_directory.as_str())
-                    .context("Failed to unpack tar archive")?;
+                    .context(format_context!("{output_directory}"))?;
 
                 Ok(())
             });
@@ -197,7 +229,7 @@ impl<Reader: std::io::Read + std::io::Seek + std::marker::Send> Decoder<Reader> 
                 .join()
                 .map_err(|err| anyhow::anyhow!("failed to join thread: {:?}", err))?;
 
-            result.context(format!("Failed to unpack tar contents"))?;
+            result.context(format_context!(""))?;
         }
 
         Ok(())

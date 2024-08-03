@@ -1,2 +1,0 @@
-[patch.'https://github.com/work-spaces/printer-rs']
-printer = {path = "../printer-rs"}

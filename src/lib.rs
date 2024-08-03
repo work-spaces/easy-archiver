@@ -2,17 +2,34 @@ pub mod decoder;
 pub mod driver;
 pub mod encoder;
 
+pub use driver::UpdateStatus;
+pub use encoder::Encoder;
+pub use decoder::Decoder;
+
 #[cfg(test)]
 mod tests {
     use super::*;
     use crate::driver::UpdateStatus;
     use std::io::Write;
 
+    const FILE_COUNT: usize = 500;
+    const LINE_COUNT: usize = 500;
 
+    fn verify_generated_files(output_directory: &str) {
+        for i in 0..FILE_COUNT {
+            let archive_path = format!("file_{i}.txt");
+            let file_path = format!("{output_directory}/{archive_path}");
+            let contents = std::fs::read_to_string(file_path.as_str()).unwrap();
+
+            for (number, line) in contents.lines().enumerate() {
+                let expected = format!("This is line #{number}");
+                assert_eq!(line, expected);
+            }
+        }
+    }
 
     fn generate_tmp_files() -> Vec<encoder::Entry> {
-        const FILE_COUNT: usize = 1000;
-        const LINE_COUNT: usize = 1000;
+
         let mut result = Vec::new();
         std::fs::create_dir_all("tmp/files").unwrap();
         for i in 0..FILE_COUNT {
@@ -53,7 +70,7 @@ mod tests {
         if let Some(detail) = update_status.detail {
             progress.set_message(detail.as_str());
         }
-        
+
         if let Some(total) = update_status.total {
             progress.set_total(total);
             if let Some(increment) = update_status.increment {
@@ -72,26 +89,26 @@ mod tests {
         let mut printer = printer::Printer::new_stdout();
 
         const DRIVERS: &[driver::Driver] = &[
-            driver::Driver::Zlib,
             driver::Driver::Gzip,
             driver::Driver::Bzip2,
             driver::Driver::Zip,
-            //driver::Driver::SevenZ,
+            driver::Driver::SevenZ,
         ];
 
         let mut multi_progress = printer::MultiProgress::new(&mut printer);
 
         for driver in DRIVERS {
+            let output_directory = "./tmp";
+            let output_filename = format!("test.{}", driver.extension());
+
+            let mut encoder = encoder::Encoder::new(output_directory, &output_filename).unwrap();
+
             let progress = std::cell::RefCell::new(multi_progress.add_progress(
                 &driver.extension(),
                 Some(100),
-                Some("Completed"),
+                None,
             ));
-            let mut encoder = encoder::Encoder::new(
-                *driver,
-                std::fs::File::create(format!("tmp/test.{}", driver.extension())).unwrap(),
-            )
-            .unwrap();
+
             encoder
                 .add_entries(
                     &entries,
@@ -100,6 +117,7 @@ mod tests {
                     }),
                 )
                 .unwrap();
+
             encoder
                 .finish(Some(&|update_status| {
                     update_progress(&progress, update_status);
@@ -118,25 +136,15 @@ mod tests {
             std::fs::create_dir_all(output_dir.as_str()).unwrap();
 
             let archive_path_string = format!("tmp/test.{}", driver.extension());
-            let archive_path = std::path::Path::new(archive_path_string.as_str());
-            if !archive_path.exists() {
-                panic!("Archive not found {archive_path_string}");
-            }
-
-            let len = archive_path.metadata().unwrap().len();
-
-            let decoder = decoder::Decoder::new(
-                *driver,
-                output_dir.as_str(),
-                std::fs::File::open(archive_path_string.as_str()).unwrap(),
-                len,
-            )
-            .unwrap();
+            let decoder =
+                decoder::Decoder::new(archive_path_string.as_str(), output_dir.as_str()).unwrap();
             decoder
                 .extract(Some(&|update_status| {
                     update_progress(&progress, update_status);
                 }))
                 .unwrap();
+
+            verify_generated_files(output_dir.as_str());
         }
     }
 }
