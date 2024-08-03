@@ -1,7 +1,7 @@
 use anyhow_source_location::{format_context, format_error};
 use std::io::Read;
 
-use crate::driver::{Driver, UpdateStatus, Updater, SEVEN_Z_TAR_FILENAME};
+use crate::driver::{self, Driver, UpdateStatus, Updater, SEVEN_Z_TAR_FILENAME};
 
 use anyhow::Context;
 
@@ -18,10 +18,15 @@ pub struct Decoder {
     input_file_name: String,
     reader_size: u64,
     driver: Driver,
+    sha256: Option<String>,
 }
 
 impl Decoder {
-    pub fn new(input_file_path: &str, destination_directory: &str) -> anyhow::Result<Self> {
+    pub fn new(
+        input_file_path: &str,
+        sha256: Option<String>,
+        destination_directory: &str,
+    ) -> anyhow::Result<Self> {
         let driver =
             Driver::from_filename(input_file_path).context(format_context!("{input_file_path}"))?;
 
@@ -50,6 +55,7 @@ impl Decoder {
             reader_size,
             input_file_name: input_file_path.to_string(),
             driver,
+            sha256,
         })
     }
 
@@ -96,6 +102,17 @@ impl Decoder {
         let driver = self.driver;
         let input_file: String = self.input_file_name.clone();
         let output_directory = self.output_directory.clone();
+
+        if let Some(digest) = self.sha256.as_ref() {
+            let actual_digest = driver::digest_file(input_file.as_str(), &updater)?;
+            if actual_digest != *digest {
+                return Err(format_error!(
+                    "digest mismatch: expected: {} actual: {}",
+                    digest,
+                    actual_digest
+                ));
+            } 
+        }
 
         let tar_bytes = match self.decoder {
             DecoderDriver::GzipDecoder(decoder) => Some(Self::extract_to_tar_bytes(
@@ -178,19 +195,7 @@ impl Decoder {
                     result
                 });
 
-                while !handle.is_finished() {
-                    if let Some(updater) = updater {
-                        updater(UpdateStatus {
-                            increment: Some(1),
-                            ..Default::default()
-                        });
-                    }
-                    std::thread::sleep(std::time::Duration::from_millis(50));
-                }
-
-                let result = handle.join().map_err(|err| format_error!("{:?}", err))?;
-
-                let tar_contents = result.context(format_context!(""))?;
+                let tar_contents = driver::wait_handle(&updater, handle).context(format_context!(""))?;
 
                 Some(tar_contents)
             }
@@ -215,21 +220,7 @@ impl Decoder {
                 });
             }
 
-            while !handle.is_finished() {
-                if let Some(updater) = updater {
-                    updater(UpdateStatus {
-                        increment: Some(1),
-                        ..Default::default()
-                    });
-                }
-                std::thread::sleep(std::time::Duration::from_millis(50));
-            }
-
-            let result = handle
-                .join()
-                .map_err(|err| anyhow::anyhow!("failed to join thread: {:?}", err))?;
-
-            result.context(format_context!(""))?;
+            driver::wait_handle(&updater, handle).context(format_context!(""))?;
         }
 
         Ok(())

@@ -2,9 +2,9 @@ pub mod decoder;
 pub mod driver;
 pub mod encoder;
 
+pub use decoder::Decoder;
 pub use driver::UpdateStatus;
 pub use encoder::Encoder;
-pub use decoder::Decoder;
 
 #[cfg(test)]
 mod tests {
@@ -29,7 +29,6 @@ mod tests {
     }
 
     fn generate_tmp_files() -> Vec<encoder::Entry> {
-
         let mut result = Vec::new();
         std::fs::create_dir_all("tmp/files").unwrap();
         for i in 0..FILE_COUNT {
@@ -118,8 +117,14 @@ mod tests {
                 )
                 .unwrap();
 
-            encoder
-                .finish(Some(&|update_status| {
+            let digestable = encoder
+                .compress(Some(&|update_status| {
+                    update_progress(&progress, update_status);
+                }))
+                .unwrap();
+
+            digestable
+                .digest(Some(&|update_status| {
                     update_progress(&progress, update_status);
                 }))
                 .unwrap();
@@ -136,8 +141,18 @@ mod tests {
             std::fs::create_dir_all(output_dir.as_str()).unwrap();
 
             let archive_path_string = format!("tmp/test.{}", driver.extension());
-            let decoder =
-                decoder::Decoder::new(archive_path_string.as_str(), output_dir.as_str()).unwrap();
+
+            let digest = {
+                let contents = std::fs::read(archive_path_string.as_str()).unwrap();
+                sha256::digest(contents)
+            };
+
+            let decoder = decoder::Decoder::new(
+                archive_path_string.as_str(),
+                Some(digest),
+                output_dir.as_str(),
+            )
+            .unwrap();
             decoder
                 .extract(Some(&|update_status| {
                     update_progress(&progress, update_status);

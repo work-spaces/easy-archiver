@@ -1,4 +1,4 @@
-use crate::driver::{Driver, UpdateStatus, Updater, SEVEN_Z_TAR_FILENAME};
+use crate::driver::{self, Driver, UpdateStatus, Updater, SEVEN_Z_TAR_FILENAME};
 use anyhow_source_location::format_context;
 use std::io::Write;
 
@@ -14,6 +14,16 @@ enum EncoderDriver {
     Bzip2Encoder(tar::Builder<Vec<u8>>),
     ZipEncoder(zip::ZipWriter<std::fs::File>),
     SevenZEncoder(tar::Builder<Vec<u8>>),
+}
+
+pub struct Digestable {
+    path: String
+}
+
+impl Digestable {
+    pub fn digest(self, updater: Updater) -> anyhow::Result<String> {
+        driver::digest_file(self.path.as_str(), &updater)
+    }
 }
 
 pub struct Encoder {
@@ -164,10 +174,11 @@ impl Encoder {
         Ok(())
     }
 
-    pub fn finish(self, updater: Updater) -> anyhow::Result<()> {
+    pub fn compress(self, updater: Updater) -> anyhow::Result<Digestable> {
         let driver = self.driver;
         let output_directory = self.output_directory.clone();
         let output_path = self.get_encoder_output_file_path();
+        let output_path_result = output_path.clone();
 
         match self.encoder {
             EncoderDriver::GzipEncoder(archiver) => {
@@ -219,23 +230,9 @@ impl Encoder {
                     Ok(())
                 });
 
-                while !handle.is_finished() {
-                    if let Some(updater) = updater {
-                        updater(UpdateStatus {
-                            increment: Some(1),
-                            ..Default::default()
-                        });
-                    }
-                    std::thread::sleep(std::time::Duration::from_millis(50));
-                }
-
-                let result = handle.join();
-                match result {
-                    Ok(result) => result,
-                    Err(err) => Err(anyhow::anyhow!("{:?}", err)),
-                }?;
+                driver::wait_handle(&updater, handle).context(format_context!(""))?;
             }
         }
-        Ok(())
+        Ok(Digestable{ path: output_path_result })
     }
 }

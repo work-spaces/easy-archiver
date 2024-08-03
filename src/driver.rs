@@ -1,3 +1,6 @@
+use anyhow_source_location::{format_error, format_context};
+use anyhow::Context;
+
 #[derive(Debug, Copy, Clone, PartialEq)]
 pub enum Driver {
     Gzip,
@@ -5,6 +8,7 @@ pub enum Driver {
     Zip,
     SevenZ,
 }
+
 
 pub(crate) const SEVEN_Z_TAR_FILENAME: &str = "swiss_army_archive_seven7_temp.tar";
 
@@ -54,3 +58,44 @@ pub struct UpdateStatus {
 }
 
 pub type Updater<'a> = Option<&'a dyn Fn(UpdateStatus)>;
+
+pub(crate) fn digest_file(file_path: &str, updater: &Updater) -> anyhow::Result<String> {
+    if let Some(updater) = updater.as_ref() {
+        updater(UpdateStatus {
+            brief: Some(format!("Digesting")),
+            detail: Some("creating tar as binary blob".to_string()),
+            total: Some(200),
+            ..Default::default()
+        });
+    }
+
+    let file_path = file_path.to_owned();
+
+    let handle = std::thread::spawn(move || -> anyhow::Result<String> {
+        let file_contents =
+            std::fs::read(&file_path).context(format_context!("{file_path}"))?;
+            let digest = sha256::digest(file_contents);
+        Ok(digest)
+    });
+
+     wait_handle(&updater, handle).context(format_context!(""))
+}
+
+pub(crate) fn wait_handle<OkType>(updater: &Updater, handle: std::thread::JoinHandle<Result<OkType, anyhow::Error>>) -> anyhow::Result<OkType> {
+    while !handle.is_finished() {
+        if let Some(updater) = updater {
+            updater(UpdateStatus {
+                increment: Some(1),
+                ..Default::default()
+            });
+        }
+        std::thread::sleep(std::time::Duration::from_millis(50));
+    }
+
+    let result = handle
+        .join()
+        .map_err(|err| format_error!("failed to join thread: {:?}", err))?;
+
+    result.map_err(|err| format_error!("{:?}", err))
+}
+
