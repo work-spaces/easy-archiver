@@ -4,10 +4,15 @@ version = "0.1.0"
 edition = "2021"
 
 [dependencies]
-
-
 flate2 = "1.0.30"
 zip = "2.1.6"
 tar = "0.4.41" 
 anyhow = "1.0.44"
 sevenz-rust = "0.6.1"
+bzip2 = "0.4.4"
+
+[dev-dependencies]
+printer = { git = "https://github.com/work-spaces/printer-rs", rev = "7b3352c4c7ae21b3920be0c5904f926f2b2b724e" }
+
+[patch.'https://github.com/work-spaces/printer-rs']
+printer = {path = "../printer-rs"}

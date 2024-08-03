@@ -1,16 +1,8 @@
+use crate::driver::{Driver, UpdateStatus, Updater};
 use std::io::Write;
 
 use anyhow::Context;
 use sevenz_rust::SevenZArchiveEntry;
-
-pub enum Driver {
-    Zlib,
-    Gzip,
-    Bzip,
-    Bzip2,
-    Zip,
-    SevenZ,
-}
 
 pub struct Entry {
     pub archive_path: String,
@@ -20,57 +12,73 @@ pub struct Entry {
 enum EncoderDriver<Writer: std::io::Write + std::io::Seek + std::marker::Send> {
     ZlibEncoder(tar::Builder<Vec<u8>>, flate2::write::ZlibEncoder<Writer>),
     GzipEncoder(tar::Builder<Vec<u8>>, flate2::write::GzEncoder<Writer>),
+    BzipEncoder(tar::Builder<Vec<u8>>, bzip2::write::BzEncoder<Writer>),
+    Bzip2Encoder(tar::Builder<Vec<u8>>, bzip2::write::BzEncoder<Writer>),
     ZipEncoder(zip::ZipWriter<Writer>),
     SevenZEncoder(tar::Builder<Vec<u8>>, sevenz_rust::SevenZWriter<Writer>),
 }
 
 pub struct Encoder<Writer: std::io::Write + std::io::Seek + std::marker::Send> {
-    driver: EncoderDriver<Writer>,
+    encoder: EncoderDriver<Writer>,
+    driver: Driver,
 }
 
 impl<Writer: std::io::Write + std::io::Seek + std::marker::Send> Encoder<Writer> {
     pub fn new(driver: Driver, writer: Writer) -> anyhow::Result<Self> {
-        match driver {
+        let encoder = match driver {
             Driver::Zlib => {
                 let archiver = tar::Builder::new(Vec::new());
                 let encoder =
                     flate2::write::ZlibEncoder::new(writer, flate2::Compression::default());
-                Ok(Self {
-                    driver: EncoderDriver::ZlibEncoder(archiver, encoder),
-                })
+                EncoderDriver::ZlibEncoder(archiver, encoder)
             }
             Driver::Gzip => {
                 let archiver = tar::Builder::new(Vec::new());
                 let encoder = flate2::write::GzEncoder::new(writer, flate2::Compression::default());
-                Ok(Self {
-                    driver: EncoderDriver::GzipEncoder(archiver, encoder),
-                })
+                EncoderDriver::GzipEncoder(archiver, encoder)
             }
             Driver::Zip => {
                 let encoder = zip::ZipWriter::new(writer);
-                Ok(Self {
-                    driver: EncoderDriver::ZipEncoder(encoder),
-                })
+                EncoderDriver::ZipEncoder(encoder)
+            }
+            Driver::Bzip => {
+                let archiver = tar::Builder::new(Vec::new());
+                let encoder = bzip2::write::BzEncoder::new(writer, bzip2::Compression::default());
+                EncoderDriver::BzipEncoder(archiver, encoder)
+            }
+            Driver::Bzip2 => {
+                let archiver = tar::Builder::new(Vec::new());
+                let encoder = bzip2::write::BzEncoder::new(writer, bzip2::Compression::default());
+                EncoderDriver::Bzip2Encoder(archiver, encoder)
             }
             Driver::SevenZ => {
                 let archiver = tar::Builder::new(Vec::new());
                 let encoder = sevenz_rust::SevenZWriter::new(writer)
                     .context(format!("Failed to create 7z encoder"))?;
-                Ok(Self {
-                    driver: EncoderDriver::SevenZEncoder(archiver, encoder),
-                })
+
+                EncoderDriver::SevenZEncoder(archiver, encoder)
             }
-        }
+        };
+
+        Ok(Self { encoder, driver })
     }
 
-    pub fn add_entries(
-        &mut self,
-        entries: &Vec<Entry>,
-        updater: Option<&dyn Fn(usize, usize)>,
-    ) -> anyhow::Result<()> {
-        for (index, entry) in entries.iter().enumerate() {
+    pub fn add_entries(&mut self, entries: &Vec<Entry>, updater: Updater) -> anyhow::Result<()> {
+        if let Some(updater) = updater.as_ref() {
+            updater(UpdateStatus {
+                brief: Some(format!("Archiving ({})", self.driver.extension())),
+                ..Default::default()
+            });
+        }
+
+        for entry in entries.iter() {
             if let Some(updater) = updater {
-                updater(index, entries.len());
+                updater(UpdateStatus {
+                    detail: Some(entry.archive_path.clone()),
+                    increment: Some(1),
+                    total: Some(entries.len() as u64),
+                    ..Default::default()
+                });
             }
             self.add_file(&entry.archive_path, &entry.file_path)
                 .context(format!("Failed to add {}", entry.archive_path))?;
@@ -79,9 +87,11 @@ impl<Writer: std::io::Write + std::io::Seek + std::marker::Send> Encoder<Writer>
     }
 
     pub fn add_file(&mut self, archive_path: &str, file_path: &str) -> anyhow::Result<()> {
-        match &mut self.driver {
+        match &mut self.encoder {
             EncoderDriver::ZlibEncoder(archiver, _)
             | EncoderDriver::GzipEncoder(archiver, _)
+            | EncoderDriver::BzipEncoder(archiver, _)
+            | EncoderDriver::Bzip2Encoder(archiver, _)
             | EncoderDriver::SevenZEncoder(archiver, _) => {
                 let mut file = std::fs::File::open(file_path)
                     .context(format!("Failed to open file {file_path}"))?;
@@ -110,7 +120,8 @@ impl<Writer: std::io::Write + std::io::Seek + std::marker::Send> Encoder<Writer>
     fn encode_in_chunks<Encoder: std::io::Write>(
         archiver: tar::Builder<Vec<u8>>,
         mut encoder: Encoder,
-        updater: Option<&dyn Fn(usize, usize)>,
+        updater: Updater,
+        driver: Driver
     ) -> anyhow::Result<()> {
         let contents = archiver
             .into_inner()
@@ -118,9 +129,20 @@ impl<Writer: std::io::Write + std::io::Seek + std::marker::Send> Encoder<Writer>
 
         let total_chunks = contents.len() / 4096;
 
-        for (index, chunk) in contents.as_slice().chunks(total_chunks).enumerate() {
+        if let Some(updater) = updater.as_ref() {
+            updater(UpdateStatus {
+                brief: Some(format!("Compressing ({})", driver.extension())),
+                ..Default::default()
+            });
+        }
+
+        for chunk in contents.as_slice().chunks(total_chunks) {
             if let Some(updater) = updater {
-                updater(index, contents.len() / total_chunks);
+                updater(UpdateStatus {
+                    increment: Some(1),
+                    total: Some((contents.len() / total_chunks) as u64),
+                    ..Default::default()
+                });
             }
             encoder
                 .write_all(chunk)
@@ -129,16 +151,23 @@ impl<Writer: std::io::Write + std::io::Seek + std::marker::Send> Encoder<Writer>
         Ok(())
     }
 
-    pub fn finish(self, updater: Option<&dyn Fn(usize, usize)>) -> anyhow::Result<()> {
-        match self.driver {
-            EncoderDriver::ZlibEncoder(archiver, mut encoder) => {
-                Self::encode_in_chunks(archiver, encoder, updater)?;
+    pub fn finish(self, updater: Updater) -> anyhow::Result<()> {
+        let driver = self.driver;
+        match self.encoder {
+            EncoderDriver::ZlibEncoder(archiver, encoder) => {
+                Self::encode_in_chunks(archiver, encoder, updater, driver)?;
             }
-            EncoderDriver::GzipEncoder(archiver, mut encoder) => {
-                Self::encode_in_chunks(archiver, encoder, updater)?;
+            EncoderDriver::GzipEncoder(archiver, encoder) => {
+                Self::encode_in_chunks(archiver, encoder, updater, driver)?;
             }
             EncoderDriver::ZipEncoder(encoder) => {
                 encoder.finish().context("Failed to finish zip archive")?;
+            }
+            EncoderDriver::BzipEncoder(archiver, encoder) => {
+                Self::encode_in_chunks(archiver, encoder, updater, driver)?;
+            }
+            EncoderDriver::Bzip2Encoder(archiver, encoder) => {
+                Self::encode_in_chunks(archiver, encoder, updater, driver)?;
             }
             EncoderDriver::SevenZEncoder(archiver, mut encoder) => {
                 let contents = archiver
@@ -159,11 +188,20 @@ impl<Writer: std::io::Write + std::io::Seek + std::marker::Send> Encoder<Writer>
                         Ok(())
                     });
 
-                    let mut count = 0_usize;
+                    if let Some(updater) = updater.as_ref() {
+                        updater(UpdateStatus {
+                            brief: Some(format!("Compressing ({})", driver.extension())),
+                            total: Some(500),
+                            ..Default::default()
+                        });
+                    }
+
                     while !handle.is_finished() {
                         if let Some(updater) = updater {
-                            updater(count, 0);
-                            count += 1;
+                            updater(UpdateStatus {
+                                increment: Some(1),
+                                ..Default::default()
+                            });
                         }
                         std::thread::sleep(std::time::Duration::from_millis(50));
                     }
@@ -178,14 +216,5 @@ impl<Writer: std::io::Write + std::io::Seek + std::marker::Send> Encoder<Writer>
             }
         }
         Ok(())
-    }
-
-    pub fn get_file_suffix(&self) -> String {
-        match &self.driver {
-            EncoderDriver::ZlibEncoder(_, _) => "zlib".to_string(),
-            EncoderDriver::GzipEncoder(_, _) => "tar.gz".to_string(),
-            EncoderDriver::ZipEncoder(_) => "zip".to_string(),
-            EncoderDriver::SevenZEncoder(_, _) => "tar.7z".to_string(),
-        }
     }
 }
