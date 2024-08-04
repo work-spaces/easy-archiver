@@ -1,3 +1,3 @@
-# swiss-army-archive
+# easy-archiver
 
-Rust crate for easily compressing and extracting in any format.
+Rust crate for easily compressing and extracting in various formats.
