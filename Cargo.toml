@@ -1,5 +1,5 @@
 [package]
-name = "swiss-army-archive"
+name = "easy-archiver"
 version = "0.1.0"
 edition = "2021"
 
