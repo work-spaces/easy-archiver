@@ -1,4 +1,4 @@
-use crate::driver::{self, Driver, UpdateStatus, Updater, SEVEN_Z_TAR_FILENAME};
+use crate::driver::{self, Driver, UpdateStatus, SEVEN_Z_TAR_FILENAME};
 use anyhow_source_location::format_context;
 use std::io::Write;
 
@@ -17,13 +17,34 @@ enum EncoderDriver {
 }
 
 pub struct Digestable {
-    path: String
+    path: String,
+    #[cfg(feature = "printer")]
+    progress_bar: printer::MultiProgressBar,
+}
+
+pub struct Digested {
+    pub sha256: String,
+    #[cfg(feature = "printer")]
+    pub progress_bar: printer::MultiProgressBar,
 }
 
 impl Digestable {
-    pub fn digest(self, updater: Updater) -> anyhow::Result<String> {
-        driver::digest_file(self.path.as_str(), &updater)
+    pub fn digest(self) -> anyhow::Result<Digested> {
+        let mut progress_bar = self.progress_bar;
+
+        let digest = driver::digest_file(
+            self.path.as_str(),
+            #[cfg(feature = "printer")]
+            &mut progress_bar,
+        );
+
+        Ok(Digested {
+            sha256: digest?,
+            #[cfg(feature = "printer")]
+            progress_bar,
+        })
     }
+
 }
 
 pub struct Encoder {
@@ -31,6 +52,8 @@ pub struct Encoder {
     driver: Driver,
     output_directory: String,
     output_filename: String,
+    #[cfg(feature = "printer")]
+    progress: printer::MultiProgressBar,
 }
 
 impl Encoder {
@@ -45,7 +68,17 @@ impl Encoder {
         )
     }
 
-    pub fn new(output_directory: &str, output_filename: &str) -> anyhow::Result<Self> {
+    #[allow(unused)]
+    fn update_status(&mut self, update_status: UpdateStatus) {
+        #[cfg(feature = "printer")]
+        driver::update_status(&mut self.progress, update_status);
+    }
+
+    pub fn new(
+        output_directory: &str,
+        output_filename: &str,
+        #[cfg(feature = "printer")] progress: printer::MultiProgressBar,
+    ) -> anyhow::Result<Self> {
         let driver = Driver::from_filename(output_filename).ok_or(anyhow::anyhow!(
             "could not determine compression type from {output_filename} suffix"
         ))?;
@@ -77,36 +110,34 @@ impl Encoder {
             driver,
             output_directory: output_directory.to_string(),
             output_filename: output_filename.to_string(),
+            #[cfg(feature = "printer")]
+            progress,
         })
     }
 
-    pub fn add_entries(&mut self, entries: &Vec<Entry>, updater: Updater) -> anyhow::Result<()> {
-        if let Some(updater) = updater.as_ref() {
-            updater(UpdateStatus {
-                brief: Some(format!("Archiving ({})", self.driver.extension())),
-                ..Default::default()
-            });
-        }
+    pub fn add_entries(&mut self, entries: &Vec<Entry>) -> anyhow::Result<()> {
+        self.update_status(UpdateStatus {
+            brief: Some(format!("Archiving ({})", self.driver.extension())),
+            ..Default::default()
+        });
 
         for entry in entries.iter() {
-            if let Some(updater) = updater {
-                updater(UpdateStatus {
-                    detail: Some(entry.archive_path.clone()),
-                    increment: Some(1),
-                    total: Some(entries.len() as u64),
-                    ..Default::default()
-                });
-            }
+            self.update_status(UpdateStatus {
+                detail: Some(entry.archive_path.clone()),
+                increment: Some(1),
+                total: Some(entries.len() as u64),
+                ..Default::default()
+            });
+
             self.add_file(&entry.archive_path, &entry.file_path)
                 .context(format_context!("{}", entry.archive_path))?;
         }
 
-        if let Some(updater) = updater {
-            updater(UpdateStatus {
-                detail: Some("...".to_string()),
-                ..Default::default()
-            });
-        }
+        self.update_status(UpdateStatus {
+            detail: Some("...".to_string()),
+            ..Default::default()
+        });
+
         Ok(())
     }
 
@@ -143,8 +174,8 @@ impl Encoder {
     fn encode_in_chunks<Encoder: std::io::Write>(
         archiver: tar::Builder<Vec<u8>>,
         mut encoder: Encoder,
-        updater: Updater,
         driver: Driver,
+        #[cfg(feature = "printer")] progress: &mut printer::MultiProgressBar,
     ) -> anyhow::Result<()> {
         let contents = archiver
             .into_inner()
@@ -152,21 +183,26 @@ impl Encoder {
 
         let total_chunks = contents.len() / 4096;
 
-        if let Some(updater) = updater.as_ref() {
-            updater(UpdateStatus {
+        #[cfg(feature = "printer")]
+        driver::update_status(
+            progress,
+            UpdateStatus {
                 brief: Some(format!("Compressing ({})", driver.extension())),
                 ..Default::default()
-            });
-        }
+            },
+        );
 
         for chunk in contents.as_slice().chunks(total_chunks) {
-            if let Some(updater) = updater {
-                updater(UpdateStatus {
+            #[cfg(feature = "printer")]
+            driver::update_status(
+                progress,
+                UpdateStatus {
                     increment: Some(1),
                     total: Some((contents.len() / total_chunks) as u64),
                     ..Default::default()
-                });
-            }
+                },
+            );
+
             encoder
                 .write_all(chunk)
                 .context(format_context!("{driver:?}"))?;
@@ -174,11 +210,12 @@ impl Encoder {
         Ok(())
     }
 
-    pub fn compress(self, updater: Updater) -> anyhow::Result<Digestable> {
+    pub fn compress(self) -> anyhow::Result<Digestable> {
         let driver = self.driver;
         let output_directory = self.output_directory.clone();
         let output_path = self.get_encoder_output_file_path();
         let output_path_result = output_path.clone();
+        let mut progress_bar = self.progress;
 
         match self.encoder {
             EncoderDriver::GzipEncoder(archiver) => {
@@ -186,32 +223,42 @@ impl Encoder {
                     .context(format_context!("{output_path}"))?;
                 let encoder =
                     flate2::write::GzEncoder::new(output_file, flate2::Compression::default());
-                Self::encode_in_chunks(archiver, encoder, updater, driver)?;
+                Self::encode_in_chunks(
+                    archiver,
+                    encoder,
+                    driver,
+                    #[cfg(feature = "printer")]
+                    &mut progress_bar,
+                )?;
             }
             EncoderDriver::ZipEncoder(encoder) => {
-                encoder.finish().context(format_context!(
-                    "{output_path}"
-                ))?;
+                encoder.finish().context(format_context!("{output_path}"))?;
             }
             EncoderDriver::Bzip2Encoder(archiver) => {
                 let output_file = std::fs::File::create(output_path.as_str())
                     .context(format_context!("{output_path}"))?;
                 let encoder =
                     bzip2::write::BzEncoder::new(output_file, bzip2::Compression::default());
-                Self::encode_in_chunks(archiver, encoder, updater, driver)?;
+                Self::encode_in_chunks(
+                    archiver,
+                    encoder,
+                    driver,
+                    #[cfg(feature = "printer")]
+                    &mut progress_bar,
+                )?;
             }
             EncoderDriver::SevenZEncoder(archiver) => {
-                let contents = archiver
-                    .into_inner()
-                    .context("tar.7z")?;
+                let contents = archiver.into_inner().context("tar.7z")?;
 
-                if let Some(updater) = updater.as_ref() {
-                    updater(UpdateStatus {
+                #[cfg(feature = "printer")]
+                driver::update_status(
+                    &mut progress_bar,
+                    UpdateStatus {
                         brief: Some(format!("Compressing ({})", driver.extension())),
-                        total: Some(500),
+                        total: Some(200),
                         ..Default::default()
-                    });
-                }
+                    },
+                );
 
                 let handle = std::thread::spawn(move || -> anyhow::Result<()> {
                     let output_file = std::fs::File::create(output_path.as_str())
@@ -230,9 +277,17 @@ impl Encoder {
                     Ok(())
                 });
 
-                driver::wait_handle(&updater, handle).context(format_context!(""))?;
+                driver::wait_handle(
+                    handle,
+                    #[cfg(feature = "printer")]
+                    &mut progress_bar,
+                )
+                .context(format_context!(""))?;
             }
         }
-        Ok(Digestable{ path: output_path_result })
+        Ok(Digestable {
+            path: output_path_result,
+            progress_bar,
+        })
     }
 }

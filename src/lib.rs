@@ -9,7 +9,6 @@ pub use encoder::Encoder;
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::driver::UpdateStatus;
     use std::io::Write;
 
     const FILE_COUNT: usize = 500;
@@ -55,32 +54,6 @@ mod tests {
         result
     }
 
-    fn update_progress(
-        progress: &std::cell::RefCell<printer::MultiProgressBar>,
-        update_status: UpdateStatus,
-    ) {
-        let mut progress = progress.borrow_mut();
-
-        //println!("\n\nStatus {:?}", update_status);
-        if let Some(brief) = update_status.brief {
-            progress.set_prefix(brief.as_str());
-        }
-
-        if let Some(detail) = update_status.detail {
-            progress.set_message(detail.as_str());
-        }
-
-        if let Some(total) = update_status.total {
-            progress.set_total(total);
-            if let Some(increment) = update_status.increment {
-                progress.increment_with_overflow(increment);
-            }
-        } else {
-            progress.set_total(100_u64);
-            progress.increment_with_overflow(1);
-        }
-    }
-
     #[test]
     fn compress_test() {
         let entries = generate_tmp_files();
@@ -100,43 +73,17 @@ mod tests {
             let output_directory = "./tmp";
             let output_filename = format!("test.{}", driver.extension());
 
-            let mut encoder = encoder::Encoder::new(output_directory, &output_filename).unwrap();
+            let progress_bar = multi_progress.add_progress(&driver.extension(), Some(100), None);
 
-            let progress = std::cell::RefCell::new(multi_progress.add_progress(
-                &driver.extension(),
-                Some(100),
-                None,
-            ));
+            let mut encoder =
+                encoder::Encoder::new(output_directory, &output_filename, progress_bar).unwrap();
 
-            encoder
-                .add_entries(
-                    &entries,
-                    Some(&|update_status| {
-                        update_progress(&progress, update_status);
-                    }),
-                )
-                .unwrap();
+            encoder.add_entries(&entries).unwrap();
 
-            let digestable = encoder
-                .compress(Some(&|update_status| {
-                    update_progress(&progress, update_status);
-                }))
-                .unwrap();
-
-            digestable
-                .digest(Some(&|update_status| {
-                    update_progress(&progress, update_status);
-                }))
-                .unwrap();
+            let _digest = encoder.compress().unwrap().digest().unwrap();
         }
 
         for driver in DRIVERS {
-            let progress = std::cell::RefCell::new(multi_progress.add_progress(
-                &driver.extension(),
-                Some(100),
-                None,
-            ));
-
             let output_dir = format!("tmp/extract_test.{}", driver.extension());
             std::fs::create_dir_all(output_dir.as_str()).unwrap();
 
@@ -147,17 +94,16 @@ mod tests {
                 sha256::digest(contents)
             };
 
+            let progress_bar = multi_progress.add_progress(&driver.extension(), Some(100), None);
+
             let decoder = decoder::Decoder::new(
                 archive_path_string.as_str(),
                 Some(digest),
                 output_dir.as_str(),
+                progress_bar,
             )
             .unwrap();
-            decoder
-                .extract(Some(&|update_status| {
-                    update_progress(&progress, update_status);
-                }))
-                .unwrap();
+            decoder.extract().unwrap();
 
             verify_generated_files(output_dir.as_str());
         }

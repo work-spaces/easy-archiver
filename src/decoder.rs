@@ -1,7 +1,7 @@
 use anyhow_source_location::{format_context, format_error};
 use std::io::Read;
 
-use crate::driver::{self, Driver, UpdateStatus, Updater, SEVEN_Z_TAR_FILENAME};
+use crate::driver::{self, Driver, UpdateStatus, SEVEN_Z_TAR_FILENAME};
 
 use anyhow::Context;
 
@@ -19,6 +19,13 @@ pub struct Decoder {
     reader_size: u64,
     driver: Driver,
     sha256: Option<String>,
+    #[cfg(feature = "printer")]
+    progress_bar: printer::MultiProgressBar,
+}
+
+pub struct Extracted {
+    #[cfg(feature = "printer")]
+    pub progress_bar: printer::MultiProgressBar,
 }
 
 impl Decoder {
@@ -26,6 +33,7 @@ impl Decoder {
         input_file_path: &str,
         sha256: Option<String>,
         destination_directory: &str,
+        #[cfg(feature = "printer")] progress_bar: printer::MultiProgressBar,
     ) -> anyhow::Result<Self> {
         let driver =
             Driver::from_filename(input_file_path).context(format_context!("{input_file_path}"))?;
@@ -56,14 +64,16 @@ impl Decoder {
             input_file_name: input_file_path.to_string(),
             driver,
             sha256,
+            #[cfg(feature = "printer")]
+            progress_bar,
         })
     }
 
     fn extract_to_tar_bytes<Decoder: std::io::Read>(
         mut decoder: Decoder,
-        updater: Updater,
         reader_size: u64,
         driver: Driver,
+        #[cfg(feature = "printer")] progress_bar: &mut printer::MultiProgressBar,
     ) -> anyhow::Result<Vec<u8>> {
         let mut result = Vec::new();
 
@@ -71,14 +81,16 @@ impl Decoder {
 
         let mut buffer = [0; 8192];
 
-        if let Some(updater) = updater.as_ref() {
-            updater(UpdateStatus {
+        #[cfg(feature = "printer")]
+        driver::update_status(
+            progress_bar,
+            UpdateStatus {
                 brief: Some(format!("Extracting {}", driver.extension())),
                 detail: Some("creating tar as binary blob".to_string()),
                 total: Some(200),
                 ..Default::default()
-            });
-        }
+            },
+        );
 
         while let Ok(bytes_read) = decoder.read(&mut buffer) {
             if bytes_read == 0 {
@@ -86,64 +98,79 @@ impl Decoder {
             }
             result.extend_from_slice(&buffer[..bytes_read]);
 
-            if let Some(updater) = updater {
-                updater(UpdateStatus {
+            #[cfg(feature = "printer")]
+            driver::update_status(
+                progress_bar,
+                UpdateStatus {
                     increment: Some(1),
                     ..Default::default()
-                });
-            }
+                },
+            );
         }
 
         Ok(result)
     }
 
-    pub fn extract(self, updater: Updater) -> anyhow::Result<()> {
+    pub fn extract(self) -> anyhow::Result<Extracted> {
         let reader_size = self.reader_size;
         let driver = self.driver;
         let input_file: String = self.input_file_name.clone();
         let output_directory = self.output_directory.clone();
 
+        #[cfg(feature = "printer")]
+        let mut progress_bar = self.progress_bar;
+
         if let Some(digest) = self.sha256.as_ref() {
-            let actual_digest = driver::digest_file(input_file.as_str(), &updater)?;
+            let actual_digest = driver::digest_file(
+                input_file.as_str(),
+                #[cfg(feature = "printer")]
+                &mut progress_bar,
+            )?;
             if actual_digest != *digest {
                 return Err(format_error!(
                     "digest mismatch: expected: {} actual: {}",
                     digest,
                     actual_digest
                 ));
-            } 
+            }
         }
 
         let tar_bytes = match self.decoder {
             DecoderDriver::GzipDecoder(decoder) => Some(Self::extract_to_tar_bytes(
                 decoder,
-                updater,
                 reader_size,
                 driver,
+                #[cfg(feature = "printer")]
+                &mut progress_bar,
             )?),
             DecoderDriver::ZipDecoder(mut decoder) => {
                 let file_names: Vec<String> = decoder.file_names().map(|e| e.to_string()).collect();
 
-                if let Some(updater) = updater {
-                    updater(UpdateStatus {
+                #[cfg(feature = "printer")]
+                driver::update_status(
+                    &mut progress_bar,
+                    UpdateStatus {
                         brief: Some("Extracting (zip)".to_string()),
                         total: Some(file_names.len() as u64),
                         ..Default::default()
-                    });
-                }
+                    },
+                );
 
                 for file in file_names {
                     let mut zip_file = decoder
                         .by_name(file.as_str())
                         .context(format_context!("{file:?}"))?;
 
-                    if let Some(updater) = updater {
-                        updater(UpdateStatus {
+                    #[cfg(feature = "printer")]
+                    driver::update_status(
+                        &mut progress_bar,
+                        UpdateStatus {
                             detail: Some(file.clone()),
                             increment: Some(1),
                             ..Default::default()
-                        });
-                    }
+                        },
+                    );
+
                     let mut buffer = Vec::new();
                     let destination_path = format!("{}/{}", self.output_directory, zip_file.name());
                     let mut file = std::fs::File::create(destination_path.as_str())
@@ -164,19 +191,22 @@ impl Decoder {
             }
             DecoderDriver::Bzip2Decoder(decoder) => Some(Self::extract_to_tar_bytes(
                 decoder,
-                updater,
                 reader_size,
                 driver,
+                #[cfg(feature = "printer")]
+                &mut progress_bar,
             )?),
             DecoderDriver::SevenZDecoder => {
-                if let Some(updater) = updater.as_ref() {
-                    updater(UpdateStatus {
+                #[cfg(feature = "printer")]
+                driver::update_status(
+                    &mut progress_bar,
+                    UpdateStatus {
                         brief: Some(format!("Extracting {}", driver.extension())),
                         detail: Some("creating tar as binary blob".to_string()),
                         total: Some(200),
                         ..Default::default()
-                    });
-                }
+                    },
+                );
 
                 let handle = std::thread::spawn(move || -> anyhow::Result<Vec<u8>> {
                     let temporary_file_path =
@@ -195,7 +225,12 @@ impl Decoder {
                     result
                 });
 
-                let tar_contents = driver::wait_handle(&updater, handle).context(format_context!(""))?;
+                let tar_contents = driver::wait_handle(
+                    handle,
+                    #[cfg(feature = "printer")]
+                    &mut progress_bar,
+                )
+                .context(format_context!(""))?;
 
                 Some(tar_contents)
             }
@@ -213,16 +248,23 @@ impl Decoder {
                 Ok(())
             });
 
-            if let Some(updater) = updater.as_ref() {
-                updater(UpdateStatus {
-                    brief: Some("Unpacking (tar)".to_string()),
-                    ..Default::default()
-                });
-            }
+            #[cfg(feature = "printer")]
+            driver::update_status(&mut progress_bar, UpdateStatus {
+                brief: Some("Unpacking (tar)".to_string()),
+                ..Default::default()
+            });
 
-            driver::wait_handle(&updater, handle).context(format_context!(""))?;
+            driver::wait_handle(
+                handle,
+                #[cfg(feature = "printer")]
+                &mut progress_bar,
+            )
+            .context(format_context!(""))?;
         }
 
-        Ok(())
+        Ok(Extracted{
+            #[cfg(feature = "printer")]
+            progress_bar,
+        })
     }
 }
