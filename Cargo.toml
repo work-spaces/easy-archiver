@@ -12,7 +12,7 @@ sevenz-rust = "0.6.1"
 bzip2 = "0.4.4"
 anyhow-source-location = { git = "https://github.com/work-spaces/anyhow-source-location", rev = "019b7804e35a72f945b3b4b3a96520cdbaa77f70" }
 sha256 = "1.5.0"
-printer = { git = "https://github.com/work-spaces/printer-rs", rev = "37ee985785eda17ee65b394fde77680eab835949", optional = true }
+printer = { git = "https://github.com/work-spaces/printer-rs", rev = "8e97ad653c7b3ce40757361023bd5bc22e9cb91f", optional = true }
 
 [features]
 default = ["printer"]
