@@ -7,6 +7,7 @@ pub enum Driver {
     Bzip2,
     Zip,
     SevenZ,
+    Xz,
 }
 
 pub(crate) const SEVEN_Z_TAR_FILENAME: &str = "swiss_army_archive_seven7_temp.tar";
@@ -18,6 +19,7 @@ impl Driver {
             Driver::Bzip2 => "tar.bz2".to_string(),
             Driver::Zip => "zip".to_string(),
             Driver::SevenZ => "tar.7z".to_string(),
+            Driver::Xz => "tar.xz".to_string(),
         }
     }
 
@@ -27,6 +29,7 @@ impl Driver {
             "tar.bz2" => Some(Driver::Bzip2),
             "zip" => Some(Driver::Zip),
             "tar.7z" => Some(Driver::SevenZ),
+            "tar.xz" => Some(Driver::Xz),
             _ => None,
         }
     }
@@ -42,6 +45,8 @@ impl Driver {
             Some(Driver::Zip)
         } else if filename.ends_with(".tar.7z") {
             Some(Driver::SevenZ)
+        } else if filename.ends_with(".tar.xz") {
+            Some(Driver::Xz)
         } else {
             None
         }

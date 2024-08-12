@@ -12,6 +12,7 @@ pub struct Entry {
 enum EncoderDriver {
     GzipEncoder(tar::Builder<Vec<u8>>),
     Bzip2Encoder(tar::Builder<Vec<u8>>),
+    XzEncoder(tar::Builder<Vec<u8>>),
     ZipEncoder(zip::ZipWriter<std::fs::File>),
     SevenZEncoder(tar::Builder<Vec<u8>>),
 }
@@ -44,7 +45,6 @@ impl Digestable {
             progress_bar,
         })
     }
-
 }
 
 pub struct Encoder {
@@ -99,6 +99,10 @@ impl Encoder {
                 let archiver = tar::Builder::new(Vec::new());
                 EncoderDriver::Bzip2Encoder(archiver)
             }
+            Driver::Xz => {
+                let archiver = tar::Builder::new(Vec::new());
+                EncoderDriver::XzEncoder(archiver)
+            }
             Driver::SevenZ => {
                 let archiver = tar::Builder::new(Vec::new());
                 EncoderDriver::SevenZEncoder(archiver)
@@ -145,6 +149,7 @@ impl Encoder {
         match &mut self.encoder {
             EncoderDriver::GzipEncoder(archiver)
             | EncoderDriver::Bzip2Encoder(archiver)
+            | EncoderDriver::XzEncoder(archiver)
             | EncoderDriver::SevenZEncoder(archiver) => {
                 let mut file =
                     std::fs::File::open(file_path).context(format_context!("{file_path}"))?;
@@ -233,6 +238,18 @@ impl Encoder {
             }
             EncoderDriver::ZipEncoder(encoder) => {
                 encoder.finish().context(format_context!("{output_path}"))?;
+            }
+            EncoderDriver::XzEncoder(archiver) => {
+                let output_file = std::fs::File::create(output_path.as_str())
+                    .context(format_context!("{output_path}"))?;
+                let encoder = xz2::write::XzEncoder::new(output_file, 9);
+                Self::encode_in_chunks(
+                    archiver,
+                    encoder,
+                    driver,
+                    #[cfg(feature = "printer")]
+                    &mut progress_bar,
+                )?;
             }
             EncoderDriver::Bzip2Encoder(archiver) => {
                 let output_file = std::fs::File::create(output_path.as_str())

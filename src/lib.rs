@@ -65,6 +65,7 @@ mod tests {
             driver::Driver::Bzip2,
             driver::Driver::Zip,
             driver::Driver::SevenZ,
+            driver::Driver::Xz,
         ];
 
         let mut multi_progress = printer::MultiProgress::new(&mut printer);
