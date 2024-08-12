@@ -1,4 +1,5 @@
 use anyhow_source_location::{format_context, format_error};
+use std::collections::HashSet;
 use std::io::Read;
 
 use crate::driver::{self, Driver, UpdateStatus, SEVEN_Z_TAR_FILENAME};
@@ -8,6 +9,7 @@ use anyhow::Context;
 enum DecoderDriver {
     GzipDecoder(flate2::read::GzDecoder<std::fs::File>),
     Bzip2Decoder(bzip2::read::BzDecoder<std::fs::File>),
+    XzDecoder(xz2::read::XzDecoder<std::fs::File>),
     ZipDecoder(zip::ZipArchive<std::fs::File>),
     SevenZDecoder,
 }
@@ -26,6 +28,7 @@ pub struct Decoder {
 pub struct Extracted {
     #[cfg(feature = "printer")]
     pub progress_bar: printer::MultiProgressBar,
+    pub files: HashSet<String>,
 }
 
 impl Decoder {
@@ -52,6 +55,7 @@ impl Decoder {
                 zip::ZipArchive::new(input_file).context(format_context!("{input_file_path}"))?,
             ),
             Driver::Bzip2 => DecoderDriver::Bzip2Decoder(bzip2::read::BzDecoder::new(input_file)),
+            Driver::Xz => DecoderDriver::XzDecoder(xz2::read::XzDecoder::new(input_file)),
             Driver::SevenZ => DecoderDriver::SevenZDecoder,
         };
 
@@ -196,6 +200,13 @@ impl Decoder {
                 #[cfg(feature = "printer")]
                 &mut progress_bar,
             )?),
+            DecoderDriver::XzDecoder(decoder) => Some(Self::extract_to_tar_bytes(
+                decoder,
+                reader_size,
+                driver,
+                #[cfg(feature = "printer")]
+                &mut progress_bar,
+            )?),
             DecoderDriver::SevenZDecoder => {
                 #[cfg(feature = "printer")]
                 driver::update_status(
@@ -249,10 +260,13 @@ impl Decoder {
             });
 
             #[cfg(feature = "printer")]
-            driver::update_status(&mut progress_bar, UpdateStatus {
-                brief: Some("Unpacking (tar)".to_string()),
-                ..Default::default()
-            });
+            driver::update_status(
+                &mut progress_bar,
+                UpdateStatus {
+                    brief: Some("Unpacking (tar)".to_string()),
+                    ..Default::default()
+                },
+            );
 
             driver::wait_handle(
                 handle,
@@ -262,9 +276,27 @@ impl Decoder {
             .context(format_context!(""))?;
         }
 
-        Ok(Extracted{
+        let walk_dir: Vec<_> = walkdir::WalkDir::new(self.output_directory.as_str())
+            .into_iter()
+            .filter_map(|entry| entry.ok())
+            .collect();
+
+        let prefix = format!("{}/", self.output_directory);
+        let mut files = HashSet::new();
+        for entry in walk_dir {
+            if entry.file_type().is_dir() {
+                continue;
+            }
+            let full_path = entry.path().to_string_lossy().to_string();
+            if let Some(relative_path) = full_path.strip_prefix(prefix.as_str()) {
+                files.insert(relative_path.to_string());
+            }
+        }
+
+        Ok(Extracted {
             #[cfg(feature = "printer")]
             progress_bar,
+            files,
         })
     }
 }
