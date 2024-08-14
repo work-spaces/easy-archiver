@@ -52,7 +52,8 @@ impl Decoder {
         let decoder = match driver {
             Driver::Gzip => DecoderDriver::GzipDecoder(flate2::read::GzDecoder::new(input_file)),
             Driver::Zip => DecoderDriver::ZipDecoder(
-                zip::ZipArchive::new(input_file).context(format_context!("{input_file_path}"))?,
+                zip::ZipArchive::new(input_file)
+                    .context(format_context!("open zip failed: {input_file_path}"))?,
             ),
             Driver::Bzip2 => DecoderDriver::Bzip2Decoder(bzip2::read::BzDecoder::new(input_file)),
             Driver::Xz => DecoderDriver::XzDecoder(xz2::read::XzDecoder::new(input_file)),
@@ -177,14 +178,23 @@ impl Decoder {
 
                     let mut buffer = Vec::new();
                     let destination_path = format!("{}/{}", self.output_directory, zip_file.name());
-                    let mut file = std::fs::File::create(destination_path.as_str())
-                        .context(format_context!("{destination_path}"))?;
-                    use std::io::Write;
-                    zip_file
-                        .read_to_end(&mut buffer)
-                        .context(format_context!("{destination_path}"))?;
-                    file.write(buffer.as_slice())
-                        .context(format_context!("{destination_path}"))?;
+                    if zip_file.is_file() {
+                        let dest_parent = std::path::Path::new(destination_path.as_str())
+                            .parent()
+                            .context(format_context!("{destination_path}"))?;
+
+                        std::fs::create_dir_all(dest_parent)
+                            .context(format_context!("failed to create {dest_parent:?}"))?;
+
+                        let mut file = std::fs::File::create(destination_path.as_str())
+                            .context(format_context!("failed to create {destination_path}"))?;
+                        use std::io::Write;
+                        zip_file.read_to_end(&mut buffer).context(format_context!(
+                            "failed to read zip for {destination_path}"
+                        ))?;
+                        file.write(buffer.as_slice())
+                            .context(format_context!("failed to write {destination_path}"))?;
+                    }
                 }
 
                 decoder

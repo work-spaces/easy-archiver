@@ -155,7 +155,7 @@ impl Encoder {
                     std::fs::File::open(file_path).context(format_context!("{file_path}"))?;
                 archiver
                     .append_file(archive_path, &mut file)
-                    .context(format_context!(""))?;
+                    .context(format_context!("appending {archive_path}"))?;
             }
             EncoderDriver::ZipEncoder(encoder) => {
                 let options = zip::write::SimpleFileOptions::default()
