@@ -155,7 +155,7 @@ impl Encoder {
                     std::fs::File::open(file_path).context(format_context!("{file_path}"))?;
                 archiver
                     .append_file(archive_path, &mut file)
-                    .context(format_context!(""))?;
+                    .context(format_context!("appending {archive_path}"))?;
             }
             EncoderDriver::ZipEncoder(encoder) => {
                 let options = zip::write::SimpleFileOptions::default()
@@ -225,7 +225,7 @@ impl Encoder {
         match self.encoder {
             EncoderDriver::GzipEncoder(archiver) => {
                 let output_file = std::fs::File::create(output_path.as_str())
-                    .context(format_context!("{output_path}"))?;
+                    .context(format_context!("cannot create {output_path}"))?;
                 let encoder =
                     flate2::write::GzEncoder::new(output_file, flate2::Compression::default());
                 Self::encode_in_chunks(
