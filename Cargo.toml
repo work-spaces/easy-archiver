@@ -15,6 +15,8 @@ walkdir = "2.5.0"
 anyhow-source-location = { git = "https://github.com/work-spaces/anyhow-source-location", rev = "019b7804e35a72f945b3b4b3a96520cdbaa77f70" }
 sha256 = "1.5.0"
 printer = { git = "https://github.com/work-spaces/printer-rs", rev = "c0d686b7abbd95bc7a126183f1e7d172083151ba", optional = true }
+glob-match = "0.2.1"
+
 
 [features]
 default = ["printer"]
