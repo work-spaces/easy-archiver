@@ -1,12 +1,18 @@
 use anyhow::Context;
 use anyhow_source_location::{format_context, format_error};
+use serde::{Deserialize, Serialize};
 
-#[derive(Debug, Copy, Clone, PartialEq)]
+#[derive(Debug, Copy, Clone, PartialEq, Serialize, Deserialize)]
 pub enum Driver {
+    #[serde(rename = "tar.gz")]
     Gzip,
+    #[serde(rename = "tar.bz2")]
     Bzip2,
+    #[serde(rename = "zip")]
     Zip,
+    #[serde(rename = "tar.7z")]
     SevenZ,
+    #[serde(rename = "tar.xz")]
     Xz,
 }
 

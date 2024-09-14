@@ -1,5 +1,6 @@
 use anyhow::Context;
 use anyhow_source_location::{format_context, format_error};
+use serde::{Deserialize, Serialize};
 
 pub mod decoder;
 pub mod driver;
@@ -9,6 +10,8 @@ pub use decoder::Decoder;
 pub use driver::UpdateStatus;
 pub use encoder::Encoder;
 
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct CreateArchive {
     pub input: String,
     pub name: String,
@@ -21,7 +24,7 @@ pub struct CreateArchive {
 
 impl CreateArchive {
     pub fn get_output_file(&self) -> String {
-        let mut result = format!("{}-{}", self.name, self.version);
+        let mut result = format!("{}-v{}", self.name, self.version);
         if let Some(platform) = self.platform.as_ref() {
             result.push_str(format!("-{platform}").as_str());
         }
