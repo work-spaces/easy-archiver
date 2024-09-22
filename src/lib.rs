@@ -33,7 +33,7 @@ impl CreateArchive {
         result
     }
 
-    fn build_file_list(&self) -> anyhow::Result<Vec<(String, String)>> {
+    pub fn build_file_list(&self) -> anyhow::Result<Vec<(String, String)>> {
         let input_as_path = std::path::Path::new(self.input.as_str());
 
         let strip_prefix = if input_as_path.is_dir() {
