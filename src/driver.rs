@@ -96,8 +96,8 @@ pub(crate) fn digest_file(
     update_status(
         progress,
         UpdateStatus {
-            brief: Some(format!("Digesting")),
-            detail: Some("...".to_string()),
+            brief: None,
+            detail: Some("Digesting...".to_string()),
             total: Some(200),
             ..Default::default()
         },
