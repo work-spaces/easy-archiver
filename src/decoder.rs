@@ -90,8 +90,7 @@ impl Decoder {
         driver::update_status(
             progress_bar,
             UpdateStatus {
-                brief: Some(format!("Extracting {}", driver.extension())),
-                detail: Some("creating tar as binary blob".to_string()),
+                detail: Some(format!("creating {} as binary blob", driver.extension())),
                 total: Some(200),
                 ..Default::default()
             },
@@ -155,7 +154,7 @@ impl Decoder {
                 driver::update_status(
                     &mut progress_bar,
                     UpdateStatus {
-                        brief: Some("Extracting (zip)".to_string()),
+                        detail: Some("Extracting (zip)".to_string()),
                         total: Some(file_names.len() as u64),
                         ..Default::default()
                     },
@@ -222,7 +221,6 @@ impl Decoder {
                 driver::update_status(
                     &mut progress_bar,
                     UpdateStatus {
-                        brief: Some(format!("Extracting {}", driver.extension())),
                         detail: Some("creating tar as binary blob".to_string()),
                         total: Some(200),
                         ..Default::default()
@@ -273,7 +271,7 @@ impl Decoder {
             driver::update_status(
                 &mut progress_bar,
                 UpdateStatus {
-                    brief: Some("Unpacking (tar)".to_string()),
+                    detail: Some("Unpacking (tar)".to_string()),
                     ..Default::default()
                 },
             );
