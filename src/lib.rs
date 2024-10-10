@@ -10,7 +10,6 @@ pub use decoder::Decoder;
 pub use driver::UpdateStatus;
 pub use encoder::Encoder;
 
-
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct CreateArchive {
     pub input: String,
@@ -38,12 +37,10 @@ impl CreateArchive {
 
         let strip_prefix = if input_as_path.is_dir() {
             self.input.clone()
+        } else if let Some(parent) = input_as_path.parent() {
+            parent.to_string_lossy().to_string()
         } else {
-            if let Some(parent) = input_as_path.parent() {
-                parent.to_string_lossy().to_string()
-            } else {
-                "".to_string()
-            }
+            "".to_string()
         };
 
         let walk_dir: Vec<_> = walkdir::WalkDir::new(self.input.as_str())
@@ -56,7 +53,7 @@ impl CreateArchive {
         for item in walk_dir {
             if item.file_type().is_dir() {
                 continue;
-            } 
+            }
             let archive_path = item
                 .path()
                 .strip_prefix(strip_prefix.as_str())
@@ -187,7 +184,6 @@ mod tests {
 
     #[test]
     fn test_file_list() {
-
         fn contains(files: &Vec<(String, String)>, archive_path: &str) -> bool {
             files.iter().any(|(a, _)| a == archive_path)
         }
@@ -253,7 +249,6 @@ mod tests {
         assert_eq!(contains(&files, "a.txt"), false);
         assert_eq!(contains(&files, "a.txt"), false);
         assert_eq!(files.len(), 2);
-
     }
 
     #[test]

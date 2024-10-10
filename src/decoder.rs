@@ -7,11 +7,11 @@ use crate::driver::{self, Driver, UpdateStatus, SEVEN_Z_TAR_FILENAME};
 use anyhow::Context;
 
 enum DecoderDriver {
-    GzipDecoder(flate2::read::GzDecoder<std::fs::File>),
-    Bzip2Decoder(bzip2::read::BzDecoder<std::fs::File>),
-    XzDecoder(xz2::read::XzDecoder<std::fs::File>),
-    ZipDecoder(zip::ZipArchive<std::fs::File>),
-    SevenZDecoder,
+    Gzip(flate2::read::GzDecoder<std::fs::File>),
+    Bzip2(bzip2::read::BzDecoder<std::fs::File>),
+    Xz(xz2::read::XzDecoder<std::fs::File>),
+    Zip(zip::ZipArchive<std::fs::File>),
+    SevenZ,
 }
 
 pub struct Decoder {
@@ -50,14 +50,14 @@ impl Decoder {
             std::fs::File::open(input_file_path).context(format_context!("{input_file_path}"))?;
 
         let decoder = match driver {
-            Driver::Gzip => DecoderDriver::GzipDecoder(flate2::read::GzDecoder::new(input_file)),
-            Driver::Zip => DecoderDriver::ZipDecoder(
+            Driver::Gzip => DecoderDriver::Gzip(flate2::read::GzDecoder::new(input_file)),
+            Driver::Zip => DecoderDriver::Zip(
                 zip::ZipArchive::new(input_file)
                     .context(format_context!("open zip failed: {input_file_path}"))?,
             ),
-            Driver::Bzip2 => DecoderDriver::Bzip2Decoder(bzip2::read::BzDecoder::new(input_file)),
-            Driver::Xz => DecoderDriver::XzDecoder(xz2::read::XzDecoder::new(input_file)),
-            Driver::SevenZ => DecoderDriver::SevenZDecoder,
+            Driver::Bzip2 => DecoderDriver::Bzip2(bzip2::read::BzDecoder::new(input_file)),
+            Driver::Xz => DecoderDriver::Xz(xz2::read::XzDecoder::new(input_file)),
+            Driver::SevenZ => DecoderDriver::SevenZ,
         };
 
         let output_directory = destination_directory.to_string();
@@ -80,10 +80,7 @@ impl Decoder {
         driver: Driver,
         #[cfg(feature = "printer")] progress_bar: &mut printer::MultiProgressBar,
     ) -> anyhow::Result<Vec<u8>> {
-        let mut result = Vec::new();
-
-        result.reserve(reader_size as usize);
-
+        let mut result = Vec::with_capacity(reader_size as usize);
         let mut buffer = [0; 8192];
 
         #[cfg(feature = "printer")]
@@ -140,14 +137,14 @@ impl Decoder {
         }
 
         let tar_bytes = match self.decoder {
-            DecoderDriver::GzipDecoder(decoder) => Some(Self::extract_to_tar_bytes(
+            DecoderDriver::Gzip(decoder) => Some(Self::extract_to_tar_bytes(
                 decoder,
                 reader_size,
                 driver,
                 #[cfg(feature = "printer")]
                 &mut progress_bar,
             )?),
-            DecoderDriver::ZipDecoder(mut decoder) => {
+            DecoderDriver::Zip(mut decoder) => {
                 let file_names: Vec<String> = decoder.file_names().map(|e| e.to_string()).collect();
 
                 #[cfg(feature = "printer")]
@@ -202,21 +199,21 @@ impl Decoder {
 
                 None
             }
-            DecoderDriver::Bzip2Decoder(decoder) => Some(Self::extract_to_tar_bytes(
+            DecoderDriver::Bzip2(decoder) => Some(Self::extract_to_tar_bytes(
                 decoder,
                 reader_size,
                 driver,
                 #[cfg(feature = "printer")]
                 &mut progress_bar,
             )?),
-            DecoderDriver::XzDecoder(decoder) => Some(Self::extract_to_tar_bytes(
+            DecoderDriver::Xz(decoder) => Some(Self::extract_to_tar_bytes(
                 decoder,
                 reader_size,
                 driver,
                 #[cfg(feature = "printer")]
                 &mut progress_bar,
             )?),
-            DecoderDriver::SevenZDecoder => {
+            DecoderDriver::SevenZ => {
                 #[cfg(feature = "printer")]
                 driver::update_status(
                     &mut progress_bar,

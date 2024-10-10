@@ -10,11 +10,11 @@ pub struct Entry {
 }
 
 enum EncoderDriver {
-    GzipEncoder(tar::Builder<Vec<u8>>),
-    Bzip2Encoder(tar::Builder<Vec<u8>>),
-    XzEncoder(tar::Builder<Vec<u8>>),
-    ZipEncoder(zip::ZipWriter<std::fs::File>),
-    SevenZEncoder(tar::Builder<Vec<u8>>),
+    Gzip(tar::Builder<Vec<u8>>),
+    Bzip2(tar::Builder<Vec<u8>>),
+    Xz(tar::Builder<Vec<u8>>),
+    Zip(Box<zip::ZipWriter<std::fs::File>>),
+    SevenZ(tar::Builder<Vec<u8>>),
 }
 
 pub struct Digestable {
@@ -86,26 +86,26 @@ impl Encoder {
         let encoder = match driver {
             Driver::Gzip => {
                 let archiver = tar::Builder::new(Vec::new());
-                EncoderDriver::GzipEncoder(archiver)
+                EncoderDriver::Gzip(archiver)
             }
             Driver::Zip => {
                 let file_path = Self::get_output_file_path(output_directory, output_filename);
                 let file = std::fs::File::create(file_path.as_str())
                     .context(format_context!("{file_path}"))?;
                 let encoder = zip::ZipWriter::new(file);
-                EncoderDriver::ZipEncoder(encoder)
+                EncoderDriver::Zip(Box::new(encoder))
             }
             Driver::Bzip2 => {
                 let archiver = tar::Builder::new(Vec::new());
-                EncoderDriver::Bzip2Encoder(archiver)
+                EncoderDriver::Bzip2(archiver)
             }
             Driver::Xz => {
                 let archiver = tar::Builder::new(Vec::new());
-                EncoderDriver::XzEncoder(archiver)
+                EncoderDriver::Xz(archiver)
             }
             Driver::SevenZ => {
                 let archiver = tar::Builder::new(Vec::new());
-                EncoderDriver::SevenZEncoder(archiver)
+                EncoderDriver::SevenZ(archiver)
             }
         };
 
@@ -119,7 +119,7 @@ impl Encoder {
         })
     }
 
-    pub fn add_entries(&mut self, entries: &Vec<Entry>) -> anyhow::Result<()> {
+    pub fn add_entries(&mut self, entries: &[Entry]) -> anyhow::Result<()> {
         self.update_status(UpdateStatus {
             detail: Some(format!("Archiving... ({})", self.driver.extension())),
             ..Default::default()
@@ -147,17 +147,17 @@ impl Encoder {
 
     pub fn add_file(&mut self, archive_path: &str, file_path: &str) -> anyhow::Result<()> {
         match &mut self.encoder {
-            EncoderDriver::GzipEncoder(archiver)
-            | EncoderDriver::Bzip2Encoder(archiver)
-            | EncoderDriver::XzEncoder(archiver)
-            | EncoderDriver::SevenZEncoder(archiver) => {
+            EncoderDriver::Gzip(archiver)
+            | EncoderDriver::Bzip2(archiver)
+            | EncoderDriver::Xz(archiver)
+            | EncoderDriver::SevenZ(archiver) => {
                 let mut file =
                     std::fs::File::open(file_path).context(format_context!("{file_path}"))?;
                 archiver
                     .append_file(archive_path, &mut file)
                     .context(format_context!("appending {archive_path}"))?;
             }
-            EncoderDriver::ZipEncoder(encoder) => {
+            EncoderDriver::Zip(encoder) => {
                 let options = zip::write::SimpleFileOptions::default()
                     .compression_method(zip::CompressionMethod::Deflated)
                     .unix_permissions(0o755);
@@ -223,7 +223,7 @@ impl Encoder {
         let mut progress_bar = self.progress;
 
         match self.encoder {
-            EncoderDriver::GzipEncoder(archiver) => {
+            EncoderDriver::Gzip(archiver) => {
                 let output_file = std::fs::File::create(output_path.as_str())
                     .context(format_context!("cannot create {output_path}"))?;
                 let encoder =
@@ -236,10 +236,10 @@ impl Encoder {
                     &mut progress_bar,
                 )?;
             }
-            EncoderDriver::ZipEncoder(encoder) => {
+            EncoderDriver::Zip(encoder) => {
                 encoder.finish().context(format_context!("{output_path}"))?;
             }
-            EncoderDriver::XzEncoder(archiver) => {
+            EncoderDriver::Xz(archiver) => {
                 let output_file = std::fs::File::create(output_path.as_str())
                     .context(format_context!("{output_path}"))?;
                 let encoder = xz2::write::XzEncoder::new(output_file, 9);
@@ -251,7 +251,7 @@ impl Encoder {
                     &mut progress_bar,
                 )?;
             }
-            EncoderDriver::Bzip2Encoder(archiver) => {
+            EncoderDriver::Bzip2(archiver) => {
                 let output_file = std::fs::File::create(output_path.as_str())
                     .context(format_context!("{output_path}"))?;
                 let encoder =
@@ -264,7 +264,7 @@ impl Encoder {
                     &mut progress_bar,
                 )?;
             }
-            EncoderDriver::SevenZEncoder(archiver) => {
+            EncoderDriver::SevenZ(archiver) => {
                 let contents = archiver.into_inner().context("tar.7z")?;
 
                 #[cfg(feature = "printer")]
