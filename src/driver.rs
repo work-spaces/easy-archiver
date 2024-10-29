@@ -32,6 +32,7 @@ impl Driver {
     pub fn from_extension(extension: &str) -> Option<Self> {
         match extension {
             "tar.gz" => Some(Driver::Gzip),
+            "tar.tgz" => Some(Driver::Gzip),
             "tar.bz2" => Some(Driver::Bzip2),
             "zip" => Some(Driver::Zip),
             "tar.7z" => Some(Driver::SevenZ),
@@ -41,7 +42,7 @@ impl Driver {
     }
 
     pub fn from_filename(filename: &str) -> Option<Self> {
-        if filename.ends_with(".tar.gz") {
+        if filename.ends_with(".tar.gz") || filename.ends_with(".tgz"){
             Some(Driver::Gzip)
         } else if filename.ends_with(".tar.bz") || filename.ends_with(".tar.bz2") {
             Some(Driver::Bzip2)
