@@ -11,6 +11,7 @@ pub use driver::UpdateStatus;
 pub use encoder::Encoder;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct CreateArchive {
     pub input: String,
     pub name: String,
