@@ -208,9 +208,13 @@ impl Encoder {
                 },
             );
 
-            encoder
-                .write_all(chunk)
-                .context(format_context!("{driver:?}"))?;
+            if chunk.len() > 0 {
+                encoder
+                    .write_all(chunk)
+                    .context(format_context!("encoder with driver {driver:?} failed"))?;
+            } else {
+                break;
+            }
         }
         Ok(())
     }
