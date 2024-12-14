@@ -208,7 +208,7 @@ impl Encoder {
                 },
             );
 
-            if chunk.len() > 0 {
+            if !chunk.is_empty() {
                 encoder
                     .write_all(chunk)
                     .context(format_context!("encoder with driver {driver:?} failed"))?;
