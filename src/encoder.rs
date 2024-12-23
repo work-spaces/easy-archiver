@@ -144,18 +144,41 @@ impl Encoder {
 
         Ok(())
     }
-
+    
     pub fn add_file(&mut self, archive_path: &str, file_path: &str) -> anyhow::Result<()> {
         match &mut self.encoder {
             EncoderDriver::Gzip(archiver)
             | EncoderDriver::Bzip2(archiver)
             | EncoderDriver::Xz(archiver)
             | EncoderDriver::SevenZ(archiver) => {
-                let mut file =
-                    std::fs::File::open(file_path).context(format_context!("{file_path}"))?;
-                archiver
-                    .append_file(archive_path, &mut file)
-                    .context(format_context!("appending {archive_path}"))?;
+                let path = std::path::Path::new(file_path);
+                if path.is_symlink() {
+                    let target = path
+                        .read_link()
+                        .context(format_context!("failed to read symlink {file_path}"))?;
+                    let mut header = tar::Header::new_gnu();
+                    header
+                        .set_path(archive_path)
+                        .context(format_context!("Failed to set link path {archive_path}"))?;
+                    header.set_entry_type(tar::EntryType::Symlink);
+                    header
+                        .set_link_name(target)
+                        .context(format_context!("Failed to set target"))?;
+                    header.set_size(0);
+                    header.set_mtime(0);
+                    header.set_uid(0);
+                    header.set_gid(0);
+                    header.set_mode(0o777);
+                    archiver
+                        .append(&header, &mut std::io::empty())
+                        .context(format_context!("Failed to append symlink {file_path}"))?;
+                } else {
+                    let mut file =
+                        std::fs::File::open(file_path).context(format_context!("{file_path}"))?;
+                    archiver
+                        .append_file(archive_path, &mut file)
+                        .context(format_context!("appending {archive_path}"))?;
+                }
             }
             EncoderDriver::Zip(encoder) => {
                 let options = zip::write::SimpleFileOptions::default()
