@@ -157,6 +157,8 @@ impl Encoder {
                         .read_link()
                         .context(format_context!("failed to read symlink {file_path}"))?;
                     let mut header = tar::Header::new_gnu();
+                    header.set_entry_type(tar::EntryType::Symlink);
+                    header.set_size(0);
                     archiver
                         .append_link(&mut header, archive_path, target)
                         .context(format_context!("Failed to append symlink {file_path}"))?;
