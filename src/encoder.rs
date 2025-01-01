@@ -1,8 +1,6 @@
 use crate::driver::{self, Driver, UpdateStatus, SEVEN_Z_TAR_FILENAME};
 use anyhow_source_location::format_context;
 use std::io::Write;
-use std::os::unix::fs::{MetadataExt, PermissionsExt};
-
 use anyhow::Context;
 
 pub struct Entry {
@@ -164,6 +162,7 @@ impl Encoder {
                     .context(format_context!("{file_path}"))?;
                     #[cfg(unix)]
                     {
+                        use std::os::unix::fs::{MetadataExt, PermissionsExt};
                         header.set_mode(metadata.permissions().mode());
                         header.set_mtime(metadata.mtime() as u64);
                     }
