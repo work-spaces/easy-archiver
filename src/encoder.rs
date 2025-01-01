@@ -1,6 +1,7 @@
 use crate::driver::{self, Driver, UpdateStatus, SEVEN_Z_TAR_FILENAME};
 use anyhow_source_location::format_context;
 use std::io::Write;
+use std::os::unix::fs::{MetadataExt, PermissionsExt};
 
 use anyhow::Context;
 
@@ -159,6 +160,14 @@ impl Encoder {
                     let mut header = tar::Header::new_gnu();
                     header.set_entry_type(tar::EntryType::Symlink);
                     header.set_size(0);
+                    let metadata = std::fs::metadata(file_path)
+                    .context(format_context!("{file_path}"))?;
+                    #[cfg(unix)]
+                    {
+                        header.set_mode(metadata.permissions().mode());
+                        header.set_mtime(metadata.mtime() as u64);
+                    }
+
                     archiver
                         .append_link(&mut header, archive_path, target)
                         .context(format_context!("Failed to append symlink {file_path}"))?;
