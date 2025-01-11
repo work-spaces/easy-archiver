@@ -14,7 +14,7 @@ xz2 = "0.1.7"
 walkdir = "2.5.0"
 anyhow-source-location = { git = "https://github.com/work-spaces/anyhow-source-location", rev = "019b7804e35a72f945b3b4b3a96520cdbaa77f70" }
 sha256 = "1.5.0"
-printer = { git = "https://github.com/work-spaces/printer-rs", rev = "714666cb03e02e7bc361215325735a85593a87a2", optional = true }
+printer = { git = "https://github.com/work-spaces/printer-rs", rev = "5404b35dc0642c0ec537d82d3a2f3a038ee4cf77", optional = true }
 glob-match = "0.2.1"
 serde = "1"
 
