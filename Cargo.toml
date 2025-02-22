@@ -9,7 +9,8 @@ zip = "2.1.6"
 tar = "0.4.41"
 anyhow = "1.0.44"
 sevenz-rust = "0.6.1"
-bzip2 = "0.5.1"
+# zip requiles bzip2 be on 0.4
+bzip2 = "0.4"
 xz2 = "0.1.7"
 walkdir = "2.5.0"
 anyhow-source-location = { git = "https://github.com/work-spaces/anyhow-source-location", rev = "v0.1.0" }
