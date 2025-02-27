@@ -1,7 +1,7 @@
 use crate::driver::{self, Driver, UpdateStatus, SEVEN_Z_TAR_FILENAME};
+use anyhow::Context;
 use anyhow_source_location::format_context;
 use std::io::Write;
-use anyhow::Context;
 
 pub struct Entry {
     pub archive_path: String,
@@ -143,7 +143,7 @@ impl Encoder {
 
         Ok(())
     }
-    
+
     pub fn add_file(&mut self, archive_path: &str, file_path: &str) -> anyhow::Result<()> {
         match &mut self.encoder {
             EncoderDriver::Gzip(archiver)
@@ -158,8 +158,8 @@ impl Encoder {
                     let mut header = tar::Header::new_gnu();
                     header.set_entry_type(tar::EntryType::Symlink);
                     header.set_size(0);
-                    let metadata = std::fs::metadata(file_path)
-                    .context(format_context!("{file_path}"))?;
+                    let metadata =
+                        std::fs::metadata(file_path).context(format_context!("{file_path}"))?;
                     #[cfg(unix)]
                     {
                         use std::os::unix::fs::{MetadataExt, PermissionsExt};
@@ -170,7 +170,6 @@ impl Encoder {
                     archiver
                         .append_link(&mut header, archive_path, target)
                         .context(format_context!("Failed to append symlink {file_path}"))?;
-
                 } else {
                     let mut file =
                         std::fs::File::open(file_path).context(format_context!("{file_path}"))?;

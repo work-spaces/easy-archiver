@@ -1,5 +1,10 @@
 # Changes
 
+## v0.1.3
+
+- Update printer to v0.1.5
+- cargo fmt
+
 ## v0.1.2
 
 - Update printer to v0.1.4
@@ -16,7 +21,7 @@
 ## Developer Notes
 
 ```sh
-export VERSION=0.1.2
+export VERSION=0.1.3
 git tag -a v$VERSION -m "Update version"
 git push origin tag v$VERSION
 ```
