@@ -103,7 +103,7 @@ impl CreateArchive {
         std::fs::create_dir_all(output_directory)
             .context(format_context!("failed to create {output_directory}"))?;
 
-        let output_file_path = format!("{}/{}", output_directory, output_file_name);
+        let output_file_path = format!("{output_directory}/{output_file_name}");
 
         let files = self
             .build_file_list()

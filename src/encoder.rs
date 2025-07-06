@@ -306,7 +306,7 @@ impl Encoder {
                     let output_file = std::fs::File::create(output_path.as_str())
                         .context(format_context!("{output_path}"))?;
 
-                    let temporary_tar_path = format!("{output_directory}/{}", SEVEN_Z_TAR_FILENAME);
+                    let temporary_tar_path = format!("{output_directory}/{SEVEN_Z_TAR_FILENAME}");
                     // create a temporary tar file
                     std::fs::write(temporary_tar_path.as_str(), contents)
                         .context(format_context!("{temporary_tar_path}"))?;
