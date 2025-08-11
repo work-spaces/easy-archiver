@@ -225,8 +225,7 @@ impl Decoder {
                 );
 
                 let handle = std::thread::spawn(move || -> anyhow::Result<Vec<u8>> {
-                    let temporary_file_path =
-                        format!("{output_directory}/{SEVEN_Z_TAR_FILENAME}");
+                    let temporary_file_path = format!("{output_directory}/{SEVEN_Z_TAR_FILENAME}");
                     let input_file = std::fs::File::open(input_file.as_str())
                         .context(format_context!("{input_file}"))?;
                     sevenz_rust::decompress(input_file, output_directory.as_str()).context(
